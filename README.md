@@ -1,30 +1,33 @@
 # wp-inspector (Lite Edition) 🔎
 
-**Script de diagnóstico y auditoría *Single-File* para entornos WordPress.**
+Un script de un solo archivo para hacer *triage* rápido de rendimiento y seguridad en entornos WordPress.
 
-> **Nota:** Este repositorio contiene la **Edición Lite** (demostrativa) de `wp-inspector`. La versión comercial completa incluye 34 módulos de detección, firmas de malware propietarias y auditoría técnica de la Ley 21.719 (Chile). Para proteger la propiedad intelectual, los módulos heurísticos y normativos sensibles han sido reemplazados por *stubs* en esta demostración pública.
+> **Nota:** Esta es una versión reducida pensada para mi portafolio. La versión completa de esta herramienta tiene 34 módulos (incluyendo detección de malware y validación legal). Para proteger ese trabajo, dejé un par de módulos funcionales aquí y el resto como cascarones (*stubs*), pero la estructura base del código es la real.
 
-## 📌 El Problema
-Las auditorías tradicionales de WordPress dependen de plugins pesados que escriben en la base de datos, dejan basura (bloat) y requieren acceso completo al panel de administración. En escenarios de respuesta a incidentes (compromiso por malware) o cuellos de botella severos, instalar más plugins degrada aún más el entorno.
+## ¿Por qué hice esto?
+Cuando un servidor con WordPress está comprometido o tiene el CPU al 100%, instalarle *otro plugin* para auditarlo es una pésima idea. Los plugins modifican la base de datos, dejan basura y muchas veces ni siquiera cargan si el sitio está caído. 
 
-## 🚀 La Solución
-`wp-inspector` es una sonda de diagnóstico que opera bajo un modelo **Zero Trust** y de **Lectura Pura (Read-Only)**. Se sube vía SFTP, se ejecuta en una sola petición HTTP y genera telemetría sin modificar la base de datos.
+Necesitaba una forma de diagnosticar sitios enfermos sin tocarlos.
 
-## 🏗️ Conceptos Arquitectónicos (Ingeniería de Software)
-Este proyecto no es un script procedural tradicional; implementa patrones de diseño corporativos agnósticos para garantizar resiliencia en servidores críticos:
+## ¿Qué hace?
+`wp-inspector` es una sonda de **solo lectura**. La subes por SFTP a la raíz del sitio, la ejecutas en tu navegador pasándole un token, te escupe la telemetría y la borras. Cero impacto en la base de datos y cero rastros.
 
-* **Kernel Zero Trust:** Autenticación estricta por token de 64 caracteres. La validación se realiza en tiempo constante (`hash_equals`) para mitigar *timing attacks*. Si la sonda no está configurada, devuelve un `404 Not Found` nativo para evadir escáneres automatizados.
-* **Pipeline Engine & Circuit Breaker:** Un orquestador central aísla la ejecución de cada módulo. Si la base de datos está caída y un módulo lanza una excepción, el *Circuit Breaker* lo captura, aísla el fallo y permite que los módulos del sistema de archivos sigan operando.
-* **Scoring Multi-vector:** Sistema heurístico de acumulación de puntajes para reducir la fatiga de alertas y falsos positivos.
-* **Shims Defensivos:** Soporte para operar en "Modo Degradado" inyectando *polyfills* si el core del CMS está corrupto.
+## ¿Cómo funciona bajo el capó?
+El código está estructurado para no romperse, incluso si el servidor está en las últimas. Implementé un par de patrones clave:
 
-## 🧩 Módulos Demostrativos Incluidos
-1. `wpo.autoload`: Análisis de rendimiento y bloat en tabla de opciones (`wp_options`).
-2. `sec.filesystem`: Detección de archivos de control de versiones (`.git`) y directorios sensibles expuestos públicamente.
-*(Nota: Módulos de inyección de contenido y compliance están presentes como stubs).*
+* **Tolerancia a fallos (Circuit Breaker):** Si el orquestador intenta leer la base de datos y esta no responde, el script no arroja un Error 500 fatal. Captura la excepción, aísla ese módulo y sigue escaneando el resto del sistema (como los archivos físicos).
+* **Autenticación estricta:** No basta con adivinar la URL del script. Requiere un token validado con `hash_equals` (para evitar *timing attacks*). Si entras sin el token correcto, el script simula un `404 Not Found` nativo para despistar a los bots.
+* **Modo de supervivencia:** Si el core del CMS está corrupto y no carga sus funciones, la sonda inyecta *polyfills* (funciones de rescate) para poder terminar el diagnóstico.
+* **Anti-Falsos Positivos:** Usa un sistema de puntaje por pesos. Un problema se marca como "Crítico" solo si coinciden varios vectores al mismo tiempo, evitando que te llene de alertas inútiles.
 
-## ⚙️ Uso Básico
-1. Configurar un token seguro en la constante `PROBE_TOKEN`.
-2. Subir a la raíz del servidor vía SFTP.
-3. Ejecutar: `https://midominio.com/wp-inspector-lite.php?token=TU_TOKEN`
-4. Eliminar el archivo tras finalizar el triage.
+## Módulos de demostración en este repo
+Para mostrar cómo interactúa con el entorno, dejé expuestos estos dos módulos:
+1. `wpo.autoload`: Revisa el peso en bytes de la tabla `wp_options` para detectar cuellos de botella en el TTFB (Time to First Byte).
+2. `sec.filesystem`: Escanea si hay directorios de control de versiones (como `.git`) expuestos públicamente.
+
+## Uso rápido
+1. Edita el archivo y cambia la constante `PROBE_DEFAULT_TOKEN` por un token seguro.
+2. Sube `wp-inspector-lite.php` a la carpeta `public_html` (o equivalente).
+3. Abre en tu navegador: `https://tudominio.com/wp-inspector-lite.php?token=TU_TOKEN`
+4. Lee el JSON devuelto.
+5. **Borra el archivo** cuando termines.
