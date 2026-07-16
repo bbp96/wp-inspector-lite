@@ -1,33 +1,31 @@
 # wp-inspector (Lite Edition) 🔎
 
-Un script de un solo archivo para hacer *triage* rápido de rendimiento y seguridad en entornos WordPress.
+Script de diagnóstico (*single-file*) para la evaluación de rendimiento y seguridad en entornos WordPress.
 
-> **Nota:** Esta es una versión reducida pensada para mi portafolio. La versión completa de esta herramienta tiene 34 módulos (incluyendo detección de malware y validación legal). Para proteger ese trabajo, dejé un par de módulos funcionales aquí y el resto como cascarones (*stubs*), pero la estructura base del código es la real.
+> **Nota:** Esta es una edición simplificada para propósitos de demostración. La versión comercial incluye 34 módulos operativos (detección de malware, validación de cumplimiento normativo, entre otros). Los módulos sensibles han sido reemplazados por *stubs*, manteniendo intacta la arquitectura base del software.
 
-## ¿Por qué hice esto?
-Cuando un servidor con WordPress está comprometido o tiene el CPU al 100%, instalarle *otro plugin* para auditarlo es una pésima idea. Los plugins modifican la base de datos, dejan basura y muchas veces ni siquiera cargan si el sitio está caído. 
+## El Problema
+Auditar un servidor comprometido o con alta carga de CPU instalando plugins adicionales es contraproducente. Los plugins convencionales alteran la base de datos, generan *bloat* y fallan si el CMS está inestable. El objetivo de este proyecto es diagnosticar la infraestructura sin alterar su estado actual.
 
-Necesitaba una forma de diagnosticar sitios enfermos sin tocarlos.
+## La Solución
+`wp-inspector` opera estrictamente en modo de lectura (*Read-Only*). Se despliega vía SFTP, se ejecuta mediante una única petición HTTP validada y genera la telemetría requerida. Tras el análisis, el archivo se elimina. El impacto en el servidor y la base de datos es nulo.
 
-## ¿Qué hace?
-`wp-inspector` es una sonda de **solo lectura**. La subes por SFTP a la raíz del sitio, la ejecutas en tu navegador pasándole un token, te escupe la telemetría y la borras. Cero impacto en la base de datos y cero rastros.
+## Arquitectura Técnica
+El código está diseñado para no interrumpir su ejecución, incluso en entornos severamente degradados. Implementa los siguientes patrones operativos:
 
-## ¿Cómo funciona bajo el capó?
-El código está estructurado para no romperse, incluso si el servidor está en las últimas. Implementé un par de patrones clave:
+* **Tolerancia a fallos (Circuit Breaker):** Si la conexión a la base de datos falla durante la ejecución de un módulo, la excepción es capturada y aislada. El orquestador permite que el resto de los módulos (ej. análisis del sistema de archivos) continúe su ejecución sin devolver un Error 500 fatal.
+* **Autenticación Zero Trust:** La ejecución requiere un token validado mediante `hash_equals` para mitigar ataques de temporización (*timing attacks*). Ante accesos no autorizados, el script devuelve un encabezado `404 Not Found` nativo para evadir escáneres automatizados.
+* **Modo degradado (Shims):** Si el núcleo del CMS está corrupto, la sonda inyecta *polyfills* para emular las funciones nativas requeridas y lograr completar el diagnóstico.
+* **Scoring Multi-vector:** Utiliza un sistema heurístico de pesos. Las alertas críticas solo se disparan si múltiples vectores coinciden, reduciendo la tasa de falsos positivos en el reporte final.
 
-* **Tolerancia a fallos (Circuit Breaker):** Si el orquestador intenta leer la base de datos y esta no responde, el script no arroja un Error 500 fatal. Captura la excepción, aísla ese módulo y sigue escaneando el resto del sistema (como los archivos físicos).
-* **Autenticación estricta:** No basta con adivinar la URL del script. Requiere un token validado con `hash_equals` (para evitar *timing attacks*). Si entras sin el token correcto, el script simula un `404 Not Found` nativo para despistar a los bots.
-* **Modo de supervivencia:** Si el core del CMS está corrupto y no carga sus funciones, la sonda inyecta *polyfills* (funciones de rescate) para poder terminar el diagnóstico.
-* **Anti-Falsos Positivos:** Usa un sistema de puntaje por pesos. Un problema se marca como "Crítico" solo si coinciden varios vectores al mismo tiempo, evitando que te llene de alertas inútiles.
+## Módulos de Demostración
+Para ilustrar la interacción con el entorno, esta versión expone dos módulos funcionales:
+1. `wpo.autoload`: Analiza el peso en bytes de la tabla `wp_options` para identificar cuellos de botella que impactan directamente el TTFB (*Time to First Byte*).
+2. `sec.filesystem`: Escanea la exposición pública de directorios de control de versiones (ej. `.git`) y la presencia de archivos sensibles.
 
-## Módulos de demostración en este repo
-Para mostrar cómo interactúa con el entorno, dejé expuestos estos dos módulos:
-1. `wpo.autoload`: Revisa el peso en bytes de la tabla `wp_options` para detectar cuellos de botella en el TTFB (Time to First Byte).
-2. `sec.filesystem`: Escanea si hay directorios de control de versiones (como `.git`) expuestos públicamente.
-
-## Uso rápido
-1. Edita el archivo y cambia la constante `PROBE_DEFAULT_TOKEN` por un token seguro.
-2. Sube `wp-inspector-lite.php` a la carpeta `public_html` (o equivalente).
-3. Abre en tu navegador: `https://tudominio.com/wp-inspector-lite.php?token=TU_TOKEN`
-4. Lee el JSON devuelto.
-5. **Borra el archivo** cuando termines.
+## Implementación Básica
+1. Configurar un token seguro en la constante `PROBE_DEFAULT_TOKEN`.
+2. Subir `wp-inspector-lite.php` a la raíz pública del servidor.
+3. Ejecutar en el navegador o consola: `https://tudominio.com/wp-inspector-lite.php?token=TU_TOKEN`
+4. Analizar la salida estructurada en formato JSON.
+5. **Eliminar el archivo** del servidor tras finalizar la auditoría.
